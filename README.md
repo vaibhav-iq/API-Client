@@ -327,7 +327,6 @@ ECWEvents API/
 ├── build-onefile.ps1         EXE build script (PowerShell)
 ├── make_icon.py              Generates assets/app.ico from the app logo
 ├── assets/app.ico            EXE icon
-├── openapi.json              Imported as a collection on first start
 ├── release/                  Built EXE (created by the build)
 └── api_client/
     ├── app.py                Application start-up
