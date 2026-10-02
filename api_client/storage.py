@@ -37,6 +37,7 @@ class Workspace:
         self.collections_path = root / "collections.json"
         self.environments_path = root / "environments.json"
         self.session_path = root / "session.json"
+        self.identities_path = root / "identities.json"
         self.history = HistoryStore(root / "cache.sqlite3")
 
     def load_collections(self) -> List[Collection]:
@@ -64,6 +65,14 @@ class Workspace:
             self.environments_path,
             {"version": 1, "globals": globals_env.to_dict(), "environments": [e.to_dict() for e in envs], "active": active},
         )
+
+    def load_identities(self) -> List[Dict[str, Any]]:
+        data = _read_json(self.identities_path, {"identities": []})
+        items = data.get("identities", []) if isinstance(data, dict) else []
+        return [i for i in items if isinstance(i, dict)]
+
+    def save_identities(self, identities: List[Dict[str, Any]]) -> None:
+        _atomic_write(self.identities_path, {"version": 1, "identities": identities})
 
     def load_session(self) -> Dict[str, Any]:
         data = _read_json(self.session_path, {})

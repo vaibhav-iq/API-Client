@@ -37,8 +37,10 @@ PALETTES: Dict[str, Dict[str, str]] = {
         "hover": "#2f2f2f",
         "selected": "#383838",
         "row_selected": "#2c2c2c",
-        "accent": "#ff6c37",
-        "accent_hover": "#ff855a",
+        "accent": "#097bed",
+        "accent_hover": "#2d8ff2",
+        "secondary": "#1e5fae",
+        "secondary_hover": "#2a6fc4",
         "primary": "#097bed",
         "primary_hover": "#2d8ff2",
         "focus": "#5a8fd6",
@@ -46,6 +48,7 @@ PALETTES: Dict[str, Dict[str, str]] = {
         "success": "#47c47e",
         "warning": "#f0b429",
         "danger": "#f26b5b",
+        "danger_hover": "#f5897b",
         "info": "#74aef6",
         "selection": "#264f78",
         "selection_fg": "#ffffff",
@@ -85,8 +88,10 @@ PALETTES: Dict[str, Dict[str, str]] = {
         "hover": "#f0f0f0",
         "selected": "#e8e8e8",
         "row_selected": "#f3f7fd",
-        "accent": "#ff6c37",
-        "accent_hover": "#e8551f",
+        "accent": "#0265d2",
+        "accent_hover": "#0053b3",
+        "secondary": "#2f7fe0",
+        "secondary_hover": "#1f6fd0",
         "primary": "#0265d2",
         "primary_hover": "#0053b3",
         "focus": "#0265d2",
@@ -94,6 +99,7 @@ PALETTES: Dict[str, Dict[str, str]] = {
         "success": "#0a8c3c",
         "warning": "#a86b00",
         "danger": "#d0271d",
+        "danger_hover": "#b11f16",
         "info": "#0265d2",
         "selection": "#b3d4fc",
         "selection_fg": "#212121",
@@ -369,8 +375,8 @@ def render_app_icon(size: int) -> QPixmap:
     painter = QPainter(pix)
     painter.setRenderHint(QPainter.Antialiasing)
     gradient = QLinearGradient(QPointF(0, 0), QPointF(size, size))
-    gradient.setColorAt(0.0, QColor("#ff8a50"))
-    gradient.setColorAt(1.0, QColor("#f0501a"))
+    gradient.setColorAt(0.0, QColor("#3b9bf5"))
+    gradient.setColorAt(1.0, QColor("#0a6fd4"))
     path = QPainterPath()
     radius = size * 0.22
     path.addRoundedRect(QRectF(0, 0, size, size), radius, radius)
@@ -489,8 +495,14 @@ def build_stylesheet() -> str:
     QPushButton#primaryButton:disabled {{ background: {selected}; border-color: {selected}; color: {faint}; }}
     QPushButton#accentButton {{ background: {accent}; border: 1px solid {accent}; color: #ffffff; font-weight: 600; }}
     QPushButton#accentButton:hover {{ background: {accent_hover}; border-color: {accent_hover}; }}
+    QPushButton#accentButton[split="true"] {{ padding-right: 30px; }}
+    QPushButton#secondaryButton {{ background: {secondary}; border: 1px solid {secondary}; color: #ffffff; font-weight: 600; padding: 6px 16px; }}
+    QPushButton#secondaryButton:hover {{ background: {secondary_hover}; border-color: {secondary_hover}; }}
     QPushButton#dangerButton {{ background: transparent; border: 1px solid {danger}; color: {danger}; }}
     QPushButton#dangerButton:hover {{ background: {hover}; }}
+    QPushButton#dangerFilledButton {{ background: {danger}; border: 1px solid {danger}; color: #ffffff; font-weight: 600; }}
+    QPushButton#dangerFilledButton:hover {{ background: {danger_hover}; border-color: {danger_hover}; }}
+    QPushButton#dangerFilledButton:disabled {{ background: {selected}; border-color: {selected}; color: {faint}; }}
     QPushButton#ghostButton {{ background: transparent; border: 1px solid transparent; }}
     QPushButton#ghostButton:hover {{ background: {hover}; }}
     QPushButton#linkButton {{ background: transparent; border: none; color: {link}; padding: 2px 4px; }}
@@ -541,7 +553,10 @@ def build_stylesheet() -> str:
     QComboBox:disabled {{ color: {faint}; }}
     QComboBox::drop-down {{ border: none; width: 22px; subcontrol-origin: padding; subcontrol-position: center right; }}
     QComboBox::down-arrow {{ image: url({chev_down}); width: 10px; height: 10px; }}
-    QComboBox QAbstractItemView {{ background: {menu_bg}; border: 1px solid {border_strong}; selection-background-color: {hover}; selection-color: {text}; outline: 0px; padding: 4px; }}
+    QComboBox QAbstractItemView {{ background: {menu_bg}; border: 1px solid {border_strong}; border-radius: 6px; selection-background-color: {hover}; selection-color: {text}; outline: 0px; padding: 5px; }}
+    QComboBox QAbstractItemView::item {{ min-height: 26px; padding: 4px 12px; border-radius: 4px; color: {text}; }}
+    QComboBox QAbstractItemView::item:selected {{ background: {hover}; }}
+    QComboBox QAbstractItemView::item:hover {{ background: {hover}; }}
     QComboBox#methodCombo {{ border: none; background: transparent; font-weight: 700; padding-left: 10px; }}
     QComboBox#methodCombo:hover {{ background: {hover}; }}
     QComboBox#flatCombo {{ background: transparent; border: 1px solid transparent; }}

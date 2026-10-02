@@ -319,4 +319,13 @@ SCRIPT_SNIPPETS: List[Tuple[str, str, str]] = [
     ("Content-Type header is present", "test", 'pm.test("Content-Type is present", lambda: pm.response.to_have_header("Content-Type"))\n'),
     ("Save token from response", "test", 'token = pm.response.path("$.access_token")\nif token:\n    pm.environment.set("token", token)\n'),
     ("Successful POST request", "test", 'pm.test("Successful POST request", pm.response.code in (200, 201, 202))\n'),
+    # -- security checks --
+    ("No server error (5xx)", "test", 'pm.test("No server error", pm.response.code < 500)\n'),
+    ("No stack trace leaked", "test", 'pm.test("No stack trace in body", not any(s in pm.response.text() for s in ("Traceback", "Exception in", "at java.", "System.Web")))\n'),
+    ("Security header: nosniff", "test", 'pm.test("X-Content-Type-Options is nosniff", pm.response.headers.get("X-Content-Type-Options", "").lower() == "nosniff")\n'),
+    ("HSTS header present", "test", 'pm.test("Strict-Transport-Security present", lambda: pm.response.to_have_header("Strict-Transport-Security"))\n'),
+    ("CORS is not wildcard", "test", 'pm.test("CORS is not wildcard", pm.response.headers.get("Access-Control-Allow-Origin") != "*")\n'),
+    ("No version disclosure", "test", 'pm.test("Server header hides version", not any(c.isdigit() for c in pm.response.headers.get("Server", "")))\n'),
+    ("Unauthorized without token", "test", 'pm.test("Protected endpoint rejects missing auth", pm.response.code in (401, 403))\n'),
+    ("Scan body for secrets", "test", 'from api_client import security\nfound = security.scan_secrets(pm.response.text())\npm.test("No secrets exposed in body", len([f for f in found if f.severity in ("high", "medium")]) == 0)\n'),
 ]

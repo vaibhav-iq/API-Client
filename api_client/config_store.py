@@ -16,7 +16,10 @@ class AppSettings:
     send_no_cache_header: bool = False
     send_postman_token_header: bool = False
     send_user_agent_header: bool = True
-    ssl_verification: bool = True
+    ssl_verification: bool = False
+
+    proxy_listen_port: int = 8080
+    proxy_bind_host: str = "127.0.0.1"
 
     use_system_proxy: bool = True
     respect_env_proxy: bool = True
@@ -35,6 +38,7 @@ _INT_LIMITS = {
     "request_timeout_ms": (0, 600000),
     "max_response_size_mb": (0, 2048),
     "proxy_port": (1, 65535),
+    "proxy_listen_port": (1, 65535),
     "editor_font_size": (7, 24),
 }
 

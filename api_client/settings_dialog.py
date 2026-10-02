@@ -5,6 +5,7 @@ from PyQt5.QtGui import QColor, QPainter
 from PyQt5.QtWidgets import (
     QCheckBox,
     QComboBox,
+    QFileDialog,
     QFormLayout,
     QFrame,
     QGroupBox,
@@ -13,6 +14,8 @@ from PyQt5.QtWidgets import (
     QLineEdit,
     QListWidget,
     QListWidgetItem,
+    QMessageBox,
+    QPushButton,
     QSpinBox,
     QStackedWidget,
     QVBoxLayout,
@@ -100,11 +103,12 @@ class _ThemeCard(QFrame):
 
 
 class SettingsDialog(ThemedDialog):
-    def __init__(self, settings: AppSettings, parent=None) -> None:
+    def __init__(self, settings: AppSettings, parent=None, ca=None) -> None:
         super().__init__(parent, "Settings", 940, 640)
         self.setModal(True)
         self._settings = replace(settings)
         self._theme_mode = settings.theme_mode
+        self._ca = ca
 
         self.body_layout.setContentsMargins(0, 0, 0, 0)
         row = QHBoxLayout()
@@ -280,13 +284,124 @@ class SettingsDialog(ThemedDialog):
         custom_form.addRow("Proxy auth", proxy_auth_row)
         custom_form.addRow("Proxy bypass", self.proxy_bypass_input)
 
+        intercept_group = QGroupBox("Intercepting proxy")
+        intercept_layout = QVBoxLayout(intercept_group)
+        intercept_layout.setSpacing(8)
+        from .proxy_server import list_bind_addresses
+
+        bind_row = QHBoxLayout()
+        bind_row.addWidget(QLabel("Bind address"))
+        self.proxy_bind_combo = QComboBox()
+        for addr in list_bind_addresses():
+            if addr == "127.0.0.1":
+                self.proxy_bind_combo.addItem("Loopback only (127.0.0.1)", addr)
+            elif addr == "0.0.0.0":
+                self.proxy_bind_combo.addItem("All interfaces (0.0.0.0)", addr)
+            else:
+                self.proxy_bind_combo.addItem(addr, addr)
+        self.proxy_bind_combo.currentIndexChanged.connect(self._on_bind_changed)
+        bind_row.addWidget(self.proxy_bind_combo, 1)
+        bind_row.addWidget(QLabel("Port"))
+        self.proxy_listen_input = QSpinBox()
+        self.proxy_listen_input.setRange(1, 65535)
+        bind_row.addWidget(self.proxy_listen_input)
+        intercept_layout.addLayout(bind_row)
+        self.proxy_bind_warning = QLabel(
+            "⚠ Binding to a non-loopback address makes this an open proxy on your network — "
+            "anyone who can reach it can route traffic through you. Use only on trusted networks."
+        )
+        self.proxy_bind_warning.setObjectName("warningNote")
+        self.proxy_bind_warning.setWordWrap(True)
+        self.proxy_bind_warning.hide()
+        intercept_layout.addWidget(self.proxy_bind_warning)
+
+        ca_desc = QLabel(
+            "To intercept HTTPS, export this CA certificate and trust it on the device/browser you are "
+            "testing, then point that client's proxy at the address above. The private key never leaves "
+            "your machine. Trust the CA only on systems you own."
+        )
+        ca_desc.setObjectName("muted")
+        ca_desc.setWordWrap(True)
+        intercept_layout.addWidget(ca_desc)
+        self.ca_status = QLabel("")
+        self.ca_status.setObjectName("faint")
+        intercept_layout.addWidget(self.ca_status)
+        ca_btns = QHBoxLayout()
+        self.ca_generate_btn = QPushButton("Generate CA")
+        self.ca_generate_btn.clicked.connect(self._generate_ca)
+        self.ca_export_pem_btn = QPushButton("Export (PEM)")
+        self.ca_export_pem_btn.clicked.connect(lambda: self._export_ca("pem"))
+        self.ca_export_der_btn = QPushButton("Export certificate (DER)")
+        self.ca_export_der_btn.clicked.connect(lambda: self._export_ca("der"))
+        for b in (self.ca_generate_btn, self.ca_export_der_btn, self.ca_export_pem_btn):
+            b.setCursor(Qt.PointingHandCursor)
+            ca_btns.addWidget(b)
+        ca_btns.addStretch(1)
+        intercept_layout.addLayout(ca_btns)
+        if self._ca is None:
+            intercept_group.setEnabled(False)
+
         layout.addWidget(top_group)
         layout.addWidget(self.custom_proxy_group)
+        layout.addWidget(intercept_group)
         layout.addStretch(1)
 
         self.use_custom_proxy_check.toggled.connect(self._toggle_custom_proxy_fields)
         self.proxy_auth_check.toggled.connect(self._toggle_proxy_auth_fields)
+        self._refresh_ca_status()
         return page
+
+    def _on_bind_changed(self, *_args) -> None:
+        self.proxy_bind_warning.setVisible((self.proxy_bind_combo.currentData() or "127.0.0.1") != "127.0.0.1")
+
+    def _refresh_ca_status(self) -> None:
+        if self._ca is None:
+            self.ca_status.setText("Certificate tools unavailable.")
+            return
+        if self._ca.exists():
+            created = self._ca.created_at()
+            when = created.strftime("%Y-%m-%d") if created else "unknown date"
+            self.ca_status.setText(f"CA certificate generated ({when}).")
+            self.ca_generate_btn.setText("Regenerate CA")
+            self.ca_export_pem_btn.setEnabled(True)
+            self.ca_export_der_btn.setEnabled(True)
+        else:
+            self.ca_status.setText("No CA certificate yet — generate one to enable HTTPS interception.")
+            self.ca_generate_btn.setText("Generate CA")
+            self.ca_export_pem_btn.setEnabled(False)
+            self.ca_export_der_btn.setEnabled(False)
+
+    def _generate_ca(self) -> None:
+        if self._ca is None:
+            return
+        if self._ca.exists() and QMessageBox.question(
+            self, "Regenerate CA",
+            "Replace the existing CA? Clients that trusted the old certificate will need to trust the new one.",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No,
+        ) != QMessageBox.Yes:
+            return
+        self._ca.generate()
+        self._refresh_ca_status()
+        QMessageBox.information(self, "CA generated", "A new CA certificate was created. Export and trust it on the client.")
+
+    def _export_ca(self, fmt: str) -> None:
+        if self._ca is None:
+            return
+        self._ca.ensure()
+        ext = "der" if fmt == "der" else "pem"
+        default = f"apiclient-ca.{ 'crt' if fmt == 'der' else 'pem' }"
+        path, _ = QFileDialog.getSaveFileName(self, "Export CA certificate", default,
+                                              f"Certificate (*.{ext} *.crt *.cer);;All files (*)")
+        if not path:
+            return
+        try:
+            from pathlib import Path
+
+            data = self._ca.cert_der() if fmt == "der" else self._ca.cert_pem()
+            Path(path).write_bytes(data)
+            QMessageBox.information(self, "Exported", f"CA certificate written to:\n{path}")
+        except Exception as exc:  # noqa: BLE001
+            QMessageBox.warning(self, "Export failed", str(exc))
 
     def _bind_settings_to_ui(self) -> None:
         s = self._settings
@@ -312,6 +427,13 @@ class SettingsDialog(ThemedDialog):
         self.proxy_user_input.setText(s.proxy_username)
         self.proxy_pass_input.setText(s.proxy_password)
         self.proxy_bypass_input.setText(s.proxy_bypass)
+        self.proxy_listen_input.setValue(s.proxy_listen_port)
+        idx = self.proxy_bind_combo.findData(s.proxy_bind_host)
+        if idx < 0:
+            self.proxy_bind_combo.addItem(s.proxy_bind_host, s.proxy_bind_host)
+            idx = self.proxy_bind_combo.count() - 1
+        self.proxy_bind_combo.setCurrentIndex(idx)
+        self._on_bind_changed()
 
         self._toggle_custom_proxy_fields(self.use_custom_proxy_check.isChecked())
 
@@ -348,6 +470,8 @@ class SettingsDialog(ThemedDialog):
             proxy_username=self.proxy_user_input.text().strip(),
             proxy_password=self.proxy_pass_input.text(),
             proxy_bypass=self.proxy_bypass_input.text().strip(),
+            proxy_listen_port=self.proxy_listen_input.value(),
+            proxy_bind_host=self.proxy_bind_combo.currentData() or "127.0.0.1",
         )
         self.accept()
 

@@ -30,10 +30,18 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from . import theme
+from . import security, theme
 from .code_editor import EditorWithSearch
 from .engine import ResponseData, RunResult
 from .theme import G
+
+SEVERITY_COLOR = {
+    security.SEV_HIGH: "danger",
+    security.SEV_MEDIUM: "warning",
+    security.SEV_LOW: "info",
+    security.SEV_INFO: "muted",
+    security.SEV_OK: "success",
+}
 from .widgets import JsonTreeView, Spinner, format_ms, format_size, refresh_tool_icons, tool_button
 
 
@@ -146,6 +154,7 @@ class ResponsePanel(QFrame):
         title = QLabel("Response")
         title.setObjectName("h2")
         h.addWidget(title)
+        self._header_layout = h
         h.addStretch(1)
         self.status_pill = QLabel()
         self.status_pill.setObjectName("statusPill")
@@ -177,6 +186,10 @@ class ResponsePanel(QFrame):
         self.pages.addWidget(self._content_page())
         self.clear()
         theme.manager().changed.connect(self._refresh_theme)
+
+    def add_header_widget(self, widget: QWidget) -> None:
+        """Place a widget on the Response header row, just after the title."""
+        self._header_layout.insertWidget(1, widget)
 
     # -- pages ---------------------------------------------------------------------
     def _empty_page(self) -> QWidget:
@@ -361,6 +374,25 @@ class ResponsePanel(QFrame):
         tl.addWidget(self.timeline_view)
         self.tabs.addTab(timeline_wrap, "Timeline")
 
+        security_wrap = QWidget()
+        sw = QVBoxLayout(security_wrap)
+        sw.setContentsMargins(0, 8, 0, 0)
+        sw.setSpacing(4)
+        sec_hint = QLabel("Automatic checks on this response: security headers, cookie flags and exposed secrets / PII.")
+        sec_hint.setObjectName("muted")
+        sec_hint.setWordWrap(True)
+        sw.addWidget(sec_hint)
+        self.security_tree = QTreeWidget()
+        self.security_tree.setObjectName("resultsTree")
+        self.security_tree.setColumnCount(2)
+        self.security_tree.setHeaderLabels(["Severity", "Finding"])
+        self.security_tree.setRootIsDecorated(True)
+        self.security_tree.header().setSectionResizeMode(0, QHeaderView.Fixed)
+        self.security_tree.header().setStretchLastSection(True)
+        self.security_tree.setColumnWidth(0, 90)
+        sw.addWidget(self.security_tree, 1)
+        self.tabs.addTab(security_wrap, "Security")
+
         layout.addWidget(self.tabs, 1)
         self.view_buttons["pretty"].setChecked(True)
         return page
@@ -470,6 +502,7 @@ class ResponsePanel(QFrame):
         self.tabs.setTabText(2, f"Headers ({len(resp.headers)})")
         self._render_tests()
         self._render_timeline(result)
+        self._render_security(resp)
 
     def _update_meta(self, resp: ResponseData) -> None:
         color = theme.status_color(resp.status)
@@ -544,6 +577,41 @@ class ResponsePanel(QFrame):
             lines.append("▾ Response Headers")
             lines.extend(f"{k}: {v}" for k, v in resp.headers)
         self.timeline_view.editor.setPlainText("\n".join(lines))
+
+    def _render_security(self, resp: ResponseData) -> None:
+        self.security_tree.clear()
+        groups = [
+            ("Security headers", security.audit_headers(resp.headers)),
+            ("Cookies", security.audit_cookies(resp.cookies)),
+            ("Error / stack-trace signatures", security.scan_response_signatures(resp.text)),
+            ("Secrets & sensitive data", security.scan_secrets(resp.text)),
+        ]
+        total_issues = 0
+        for title, findings in groups:
+            issues = [f for f in findings if f.severity != security.SEV_OK]
+            total_issues += len(issues)
+            group = QTreeWidgetItem([f"{title} ({len(issues)})", ""])
+            group.setFirstColumnSpanned(True)
+            group.setForeground(0, theme.qcolor("muted"))
+            self.security_tree.addTopLevelItem(group)
+            group.setExpanded(True)
+            if not findings:
+                child = QTreeWidgetItem(["", "Nothing flagged."])
+                child.setForeground(1, theme.qcolor("faint"))
+                group.addChild(child)
+                continue
+            for finding in findings:
+                label = finding.detail or ""
+                if finding.evidence:
+                    label = f"{label}  [{finding.evidence}]" if label else finding.evidence
+                child = QTreeWidgetItem([finding.severity.upper(), f"{finding.title} — {label}" if label else finding.title])
+                color = theme.qcolor(SEVERITY_COLOR.get(finding.severity, "muted"))
+                child.setForeground(0, color)
+                font = child.font(0)
+                font.setBold(True)
+                child.setFont(0, font)
+                group.addChild(child)
+        self.tabs.setTabText(5, f"Security ({total_issues})" if total_issues else "Security")
 
     # -- actions ---------------------------------------------------------------
     def _on_view(self, *_args) -> None:

@@ -70,7 +70,7 @@ def _empty_state(title: str, text: str, button_text: str, callback) -> QWidget:
 class Rail(QFrame):
     changed = pyqtSignal(int)
 
-    ITEMS = [(G.LIBRARY, "Collections"), (G.LAYERS, "Environments"), (G.HISTORY, "History")]
+    ITEMS = [(G.LIBRARY, "Collections"), (G.LAYERS, "Environments"), (G.HISTORY, "History"), (G.GLOBE, "Proxy")]
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -324,8 +324,13 @@ class CollectionsPanel(QWidget):
             menu.addAction(theme.icon(G.PLAY), "Send", lambda: self.app.open_request(cid, nid, send=True))
             menu.addAction(theme.icon(G.CODE), "Copy as cURL", lambda: self.app.copy_request_as_curl(cid, nid))
             menu.addSeparator()
+            menu.addAction(theme.icon(G.REFRESH), "Send to Repeater", lambda: self.app.open_repeater_for(cid, nid))
+            menu.addAction(theme.icon(G.FILTER), "Send to Intruder", lambda: self.app.open_intruder_for(cid, nid))
+            menu.addSeparator()
         else:
             menu.addAction(theme.icon(G.PLAY), "Run " + ("Collection" if kind == "collection" else "Folder"), lambda: self.app.run_collection(cid, None if kind == "collection" else nid))
+            if kind == "collection":
+                menu.addAction(theme.icon(G.LAYERS), "IDOR / BOLA Matrix…", lambda: self.app.open_idor_matrix(cid))
             menu.addSeparator()
             menu.addAction(theme.icon(G.ADD), "Add Request", lambda: self.app.add_request(cid, nid))
             menu.addAction(theme.icon(G.FOLDER), "Add Folder", lambda: self.app.add_folder(cid, nid))
@@ -502,12 +507,16 @@ class Sidebar(QFrame):
         layout.setSpacing(0)
         self.rail = Rail()
         self.panels = QStackedWidget()
+        from .proxy_panel import ProxyPanel
+
         self.collections = CollectionsPanel(app)
         self.environments = EnvironmentsPanel(app)
         self.history = HistoryPanel(app)
+        self.proxy = ProxyPanel(app)
         self.panels.addWidget(self.collections)
         self.panels.addWidget(self.environments)
         self.panels.addWidget(self.history)
+        self.panels.addWidget(self.proxy)
         self.rail.changed.connect(self._on_rail)
         layout.addWidget(self.rail)
         layout.addWidget(self.panels, 1)
@@ -519,3 +528,8 @@ class Sidebar(QFrame):
 
     def show_panel(self, index: int) -> None:
         self.rail.select(index)
+
+    def set_panels_visible(self, visible: bool) -> None:
+        """Hide the panel area (keep the icon rail) — used for the full-width Proxy view."""
+        self.panels.setVisible(visible)
+        self.setMinimumWidth(260 if visible else self.rail.width())

@@ -59,7 +59,12 @@ from .models import (
     walk,
 )
 from .request_tab import RequestTab
+from .ca import CertAuthority
+from .help_docs import DocumentationDialog
+from .proxy_panel import ProxyEntryDialog, ProxyView
+from .proxy_server import ProxyController
 from .runner import RunnerDialog
+from .security_tools import EncoderDialog, IdorMatrixDialog, IntruderDialog, JwtDialog, RepeaterDialog
 from .settings_dialog import SettingsDialog
 from .sidebar import Sidebar
 from .storage import Workspace
@@ -68,7 +73,7 @@ from .widgets import TabCloseButton, format_ms, refresh_tool_icons, tool_button,
 from .workers import FunctionWorker
 
 APP_NAME = "API Client"
-APP_VERSION = "1.0"
+APP_VERSION = "2.0"
 
 SHORTCUTS = [
     ("Ctrl+T", "New request tab"),
@@ -206,11 +211,17 @@ class MainWindow(QMainWindow):
         self._dialogs: List[QWidget] = []
         self._last_code_language = "cURL"
 
+        # Intercepting proxy (owns its CA; the sidebar Proxy panel drives it).
+        self.proxy_ca = CertAuthority(self.app_data_dir / "ca")
+        self.proxy = ProxyController(self.proxy_ca, lambda: self.settings)
+        self.proxy_captures: List[Any] = []
+
         theme.apply_app_theme(self.settings.theme_mode, self.settings.editor_font_size)
         self._build_ui()
         self._build_menus()
         self._build_shortcuts()
 
+        self.sidebar.rail.changed.connect(self._on_rail_section)
         self.sidebar.collections.refresh()
         self.sidebar.environments.refresh()
         self._refresh_env_combo()
@@ -274,6 +285,8 @@ class MainWindow(QMainWindow):
         cl.addWidget(tabs_list_btn)
         self.tabs.setCornerWidget(corner, Qt.TopRightCorner)
         self.workspace_stack.addWidget(self.tabs)
+        self.proxy_view = ProxyView(self)
+        self.workspace_stack.addWidget(self.proxy_view)
         self.vertical_splitter.addWidget(self.workspace_stack)
 
         self.console = ConsolePanel()
@@ -309,6 +322,8 @@ class MainWindow(QMainWindow):
 
         new_btn = QPushButton("New")
         new_btn.setObjectName("accentButton")
+        new_btn.setProperty("split", "true")  # reserve room for the dropdown arrow
+        new_btn.setMinimumWidth(104)
         new_btn.setIcon(theme.icon(G.ADD, "#ffffff", 14))
         new_btn.setCursor(Qt.PointingHandCursor)
         new_menu = QMenu(new_btn)
@@ -318,7 +333,8 @@ class MainWindow(QMainWindow):
         new_btn.setMenu(new_menu)
         new_btn.setObjectName("accentButton")
         import_btn = QPushButton("Import")
-        import_btn.setIcon(theme.icon(G.IMPORT, "muted", 14))
+        import_btn.setObjectName("secondaryButton")
+        import_btn.setIcon(theme.icon(G.IMPORT, "#ffffff", 14))
         import_btn.setCursor(Qt.PointingHandCursor)
         import_btn.clicked.connect(self.show_import_dialog)
         layout.addWidget(new_btn)
@@ -467,7 +483,16 @@ class MainWindow(QMainWindow):
         act(run_menu, "Generate Code Snippet", lambda: self._with_request_tab(self.show_code_snippet), "Ctrl+Shift+C", G.CODE)
         act(run_menu, "Collection Runner…", self._runner_from_status, None, G.PLAY)
 
+        sec_menu = mb.addMenu("&Security")
+        act(sec_menu, "Encoder / Decoder…", self.show_encoder, None, G.CODE)
+        act(sec_menu, "JWT Workbench…", self.show_jwt, None, G.LOCK)
+        sec_menu.addSeparator()
+        act(sec_menu, "Send Current Request to Repeater", lambda: self._with_request_tab(self.open_repeater), None, G.REFRESH)
+        act(sec_menu, "Send Current Request to Intruder", lambda: self._with_request_tab(self.open_intruder), None, G.FILTER)
+        act(sec_menu, "IDOR / BOLA Matrix…", self._idor_from_menu, None, G.LAYERS)
+
         help_menu = mb.addMenu("&Help")
+        act(help_menu, "Documentation", self.show_documentation, "F1", G.DOC)
         act(help_menu, "Keyboard Shortcuts", self.show_shortcuts, None, G.KEYBOARD)
         act(help_menu, "Open Data Folder", lambda: os.startfile(str(self.app_data_dir)) if hasattr(os, "startfile") else None, None, G.FOLDER)
         help_menu.addSeparator()
@@ -522,7 +547,7 @@ class MainWindow(QMainWindow):
         self.sidebar.show_panel(index)
 
     def show_settings(self) -> None:
-        dialog = SettingsDialog(self.settings, self)
+        dialog = SettingsDialog(self.settings, self, ca=self.proxy_ca)
         if dialog.exec_() != dialog.Accepted:
             return
         old_layout = self.settings.layout_mode
@@ -604,6 +629,21 @@ class MainWindow(QMainWindow):
     def _update_workspace_page(self) -> None:
         self.workspace_stack.setCurrentIndex(1 if self.tabs.count() else 0)
 
+    def _on_rail_section(self, index: int) -> None:
+        proxy = index == 3  # Proxy section uses the full main area, no sidebar panel
+        self.sidebar.set_panels_visible(not proxy)
+        if proxy:
+            self._saved_main_sizes = self.main_splitter.sizes()
+            total = sum(self._saved_main_sizes) or self.main_splitter.width()
+            rail = self.sidebar.rail.width()
+            self.main_splitter.setSizes([rail, max(1, total - rail)])
+            self.workspace_stack.setCurrentWidget(self.proxy_view)
+        else:
+            saved = getattr(self, "_saved_main_sizes", None)
+            if saved and len(saved) == 2 and saved[0] > self.sidebar.rail.width():
+                self.main_splitter.setSizes(saved)
+            self._update_workspace_page()
+
     def _add_tab(self, widget: QWidget) -> int:
         idx = self.tabs.addTab(widget, "")
         close_btn = TabCloseButton()
@@ -671,6 +711,9 @@ class MainWindow(QMainWindow):
         menu = QMenu(self)
         if isinstance(widget, RequestTab):
             menu.addAction(theme.icon(G.COPY), "Duplicate Tab", lambda: self.new_request_tab(widget.collect_model().clone(fresh_id=True)))
+            menu.addSeparator()
+            menu.addAction(theme.icon(G.REFRESH), "Send to Repeater", lambda: self.open_repeater(widget))
+            menu.addAction(theme.icon(G.FILTER), "Send to Intruder", lambda: self.open_intruder(widget))
             menu.addSeparator()
         menu.addAction("Close Tab", lambda: self.close_tab(self.tabs.indexOf(widget)))
         menu.addAction("Close Other Tabs", lambda: self.close_other_tabs(widget))
@@ -1181,6 +1224,72 @@ class MainWindow(QMainWindow):
         dialog.destroyed.connect(lambda _o=None, d=dialog: self._dialogs.remove(d) if d in self._dialogs else None)
         dialog.show()
 
+    def _open_tool_dialog(self, dialog: QWidget) -> None:
+        dialog.setAttribute(Qt.WA_DeleteOnClose)
+        self._dialogs.append(dialog)
+        dialog.destroyed.connect(lambda _o=None, d=dialog: self._dialogs.remove(d) if d in self._dialogs else None)
+        dialog.show()
+
+    def show_documentation(self) -> None:
+        self._open_tool_dialog(DocumentationDialog(self))
+
+    def show_encoder(self) -> None:
+        self._open_tool_dialog(EncoderDialog(self))
+
+    def show_jwt(self, token: str = "") -> None:
+        self._open_tool_dialog(JwtDialog(self, token))
+
+    def _tool_source(self, source) -> Tuple[RequestModel, Optional[str]]:
+        """Accept either a RequestTab or a ready RequestModel."""
+        if isinstance(source, RequestModel):
+            return source, None
+        return source.collect_model(), source.collection_id
+
+    def open_repeater(self, source) -> None:
+        model, cid = self._tool_source(source)
+        self._open_tool_dialog(RepeaterDialog(self, model, cid))
+
+    def open_intruder(self, source) -> None:
+        model, cid = self._tool_source(source)
+        self._open_tool_dialog(IntruderDialog(self, model, cid))
+
+    def open_proxy_entry(self, record) -> None:
+        self._open_tool_dialog(ProxyEntryDialog(self, record))
+
+    def save_model_to_collection(self, model: RequestModel) -> None:
+        tab = self.new_request_tab(model)
+        self.save_tab(tab, save_as=True)
+
+    def copy_text_to_clipboard(self, text: str) -> None:
+        QApplication.clipboard().setText(text)
+        self.toast("Copied to clipboard")
+
+    def open_repeater_for(self, collection_id: str, request_id: str) -> None:
+        node = self.find_node(collection_id, request_id)
+        if isinstance(node, RequestModel):
+            self._open_tool_dialog(RepeaterDialog(self, node.clone(), collection_id))
+
+    def open_intruder_for(self, collection_id: str, request_id: str) -> None:
+        node = self.find_node(collection_id, request_id)
+        if isinstance(node, RequestModel):
+            self._open_tool_dialog(IntruderDialog(self, node.clone(), collection_id))
+
+    def open_idor_matrix(self, collection_id: str) -> None:
+        self._open_tool_dialog(IdorMatrixDialog(self, collection_id))
+
+    def _idor_from_menu(self) -> None:
+        tab = self.current_request_tab()
+        if tab is not None and tab.collection_id:
+            self.open_idor_matrix(tab.collection_id)
+            return
+        if not self.collections:
+            self.toast("Create or import a collection to use the IDOR/BOLA matrix", error=True)
+            return
+        names = [c.name for c in self.collections]
+        name, ok = QInputDialog.getItem(self, "IDOR / BOLA Matrix", "Collection to test:", names, 0, False)
+        if ok:
+            self.open_idor_matrix(self.collections[names.index(name)].id)
+
     def _runner_from_status(self) -> None:
         tab = self.current_request_tab()
         if tab is not None and tab.collection_id:
@@ -1495,6 +1604,7 @@ class MainWindow(QMainWindow):
             QTimer.singleShot(0, self.showMaximized)
 
     def closeEvent(self, event) -> None:
+        self.proxy.stop()
         for tab in self._env_tabs():
             tab.flush()
         self._save_session()

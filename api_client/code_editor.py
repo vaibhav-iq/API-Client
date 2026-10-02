@@ -104,6 +104,18 @@ class CodeHighlighter(QSyntaxHighlighter):
                 (r"^(?:GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS|TRACE)\b", _fmt("code_keyword", bold=True), 0),
                 (r"^(?:▸|▾).*$|^[A-Z][A-Za-z ]+:$", _fmt("muted", bold=True), 0),
             ]
+        elif lang == "httpreq":
+            rules += [
+                (r"[{}\[\]]", _fmt("code_punct"), 0),
+                (r"\b-?\d+(?:\.\d+)?\b", _fmt("code_number"), 0),
+                (r"\b(?:true|false|null)\b", _fmt("code_keyword"), 0),
+                (r'"(?:\\.|[^"\\])*"', _fmt("code_string"), 0),          # JSON string value
+                (r'("(?:\\.|[^"\\])*")\s*:', _fmt("code_key"), 1),        # JSON key
+                (r"[?&]([^=&\s#]+)=", _fmt("code_attr"), 1),              # query / form param key
+                (r"=([^&#\s]+)", _fmt("code_string"), 1),                 # query / form param value
+                (r"^[\w\-]+(?=:)", _fmt("code_key"), 0),                  # header name
+                (r"^(?:GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS|TRACE)\b", _fmt("code_keyword", bold=True), 0),
+            ]
         rules.append((r"\{\{\s*[^{}\s]+?\s*\}\}", _fmt("var_ok"), 0))
         self.rules = [(re.compile(pattern), fmt, group) for pattern, fmt, group in rules]
         self.rehighlight()

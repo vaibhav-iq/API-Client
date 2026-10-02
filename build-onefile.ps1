@@ -9,7 +9,7 @@ $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $root
 
-$entry = Join-Path $root "postman_like_tester.pyw"
+$entry = Join-Path $root "APIClient.pyw"
 if (-not (Test-Path -LiteralPath $entry)) {
     throw "Entry file not found: $entry"
 }
@@ -28,8 +28,10 @@ if (-not (Test-Path -LiteralPath $iconPath)) {
     if ($LASTEXITCODE -ne 0) { throw "Icon generation failed." }
 }
 
-$releaseDir = Join-Path $root "release"
+$releaseDir = Join-Path $root "dist"
 New-Item -ItemType Directory -Force -Path $releaseDir | Out-Null
+
+$docsArg = "$(Join-Path $root 'docs');docs"
 
 & $PythonExe -m PyInstaller `
     --noconfirm `
@@ -41,6 +43,7 @@ New-Item -ItemType Directory -Force -Path $releaseDir | Out-Null
     --distpath $releaseDir `
     --workpath (Join-Path $root "build") `
     --specpath $root `
+    --add-data $docsArg `
     $entry
 
 Write-Host "Build complete. EXE: $(Join-Path $releaseDir ($AppName + '.exe'))"
